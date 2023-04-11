@@ -1,0 +1,39 @@
+---
+# Note this is not used by embedded configuration; is does a programmatic config.hazelcast-client:
+# When staring in client-server mode the cluster should be pointed to this config file.
+# e.g. hz start -c target/classes/hazelcast.yaml (or src/main/resources/hazelcast.yaml)
+hazelcast:
+  cluster-name: ordersvc
+  network:
+    port:
+      port-count: 10
+      port: 5711
+#    rest-api:
+#      enabled: true
+#      endpoint-groups:
+#        # Health check is enabled by default once rest-api enabled, so this is unnecessary
+#        HEALTH_CHECK:
+#          enabled: true
+  properties:
+    # This is not working but setting via system env variable HZ_USERCODEDEPLOYMENT_ENABLED=true does work ...
+    hazelcast.user-code-deployment.enabled: true
+#  serialization:
+#    compact-serialization:
+#      serializers:
+#        - serializer: org.hazelcast.msfdemo.acctsvc.events.AccountCompactionEventSerializer
+#        - serializer: org.hazelcast.msfdemo.acctsvc.events.BalanceChangeEventSerializer
+#        - serializer: org.hazelcast.msfdemo.acctsvc.events.OpenAccountEventSerializer
+#        - serializer: org.hazelcast.eventsourcing.sync.CompletionInfoCompactSerializer
+  jet:
+    enabled: true
+    resource-upload-enabled: true
+  map:
+    order_PENDING:
+      event-journal:
+        enabled: true
+        capacity: 100000
+
+    JRN.CreateOrderEvent:
+      event-journal:
+        enabled: true
+        capacity: 100000
