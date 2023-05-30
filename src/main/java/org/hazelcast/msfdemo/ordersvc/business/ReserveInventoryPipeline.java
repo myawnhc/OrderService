@@ -75,7 +75,7 @@ public class ReserveInventoryPipeline implements Runnable {
     private static Pipeline createPipeline() {
         Pipeline p = Pipeline.create();
 
-        SubscriptionManager<CreditCheckEvent> eventSource = new IMapSubMgr<>();
+        SubscriptionManager<CreditCheckEvent> eventSource = new IMapSubMgr<>("OrderEvent");
         SubscriptionManager.register(service.getHazelcastInstance(), CreditCheckEvent.class,
                 eventSource);
 
@@ -141,8 +141,10 @@ public class ReserveInventoryPipeline implements Runnable {
                     return completion;
                 }).setName("Invoke EventSourcingController.handleEvent")
 
-                // Send response - possibly nop if we're just responding to event
-                .writeTo(Sinks.noop());
+                // Write event to map where it will trigger subsequent pipeline stage when combined
+                .writeTo(Sinks.map("ReserveInventoryEvents",
+                        completionInfo -> completionInfo.getEvent().getKey(),
+                        completionInfo -> completionInfo.getEvent()));
 
         return p;
     }

@@ -1,6 +1,7 @@
 package org.hazelcast.msfdemo.ordersvc.business;
 
 import com.hazelcast.core.HazelcastInstance;
+import com.hazelcast.crdt.pncounter.PNCounter;
 import com.hazelcast.flakeidgen.FlakeIdGenerator;
 import com.hazelcast.jet.config.JobConfig;
 import com.hazelcast.jet.datamodel.Tuple2;
@@ -12,6 +13,7 @@ import org.example.grpc.GrpcConnector;
 import org.example.grpc.MessageWithUUID;
 import org.hazelcast.eventsourcing.EventSourcingController;
 import org.hazelcast.eventsourcing.sync.CompletionInfo;
+import org.hazelcast.msfdemo.ordersvc.dashboard.CounterService;
 import org.hazelcast.msfdemo.ordersvc.domain.Order;
 import org.hazelcast.msfdemo.ordersvc.events.CreateOrderEvent;
 import org.hazelcast.msfdemo.ordersvc.events.OrderEvent;
@@ -36,6 +38,14 @@ public class CreateOrderPipeline implements Runnable {
     private static OrderService service;
     private List<URL> dependencies;
     private static final Logger logger = Logger.getLogger(CreateOrderPipeline.class.getName());
+
+//    // Metrics moved to CounterService class
+//    public final static String PNC_CREATEORDER_IN = "CreateOrder_IN";
+//    public final static String PNC_CREATEORDER_OK = "CreateOrder_OK";
+//    public final static String PNC_CREATEORDER_FAIL = "CreateOrder_FAIL";
+//    public final static String PNC_CREATEORDER_COMPLETE = "CreateOrder_COMPLETE";
+//    public final static String PNC_CREATEORDER_ELAPSED_OK = "CreateOrder_ELAPSED_OK";
+//    public final static String PNC_CREATEORDER_ELAPSED_FAIL = "CreateOrder_ELAPSED_FAIL";
 
 
     public CreateOrderPipeline(OrderService service, byte[] clientConfig, List<URL> dependentJars) {
@@ -75,6 +85,21 @@ public class CreateOrderPipeline implements Runnable {
                         .withoutTimestamps()
                         .setName("Read CreateOrder requests from GrpcSource");
 
+
+        // Metrics collection
+        ServiceFactory<?, CounterService> counterServiceFactory =
+                ServiceFactories.sharedService(
+                        (ctx) -> new CounterService(ctx.hazelcastInstance(), "CreateOrder")
+                );
+
+
+        // Update IN counter and start timer for this UUID + Pipeline Stage
+        StreamStage<MessageWithUUID<CreateOrderRequest>> r2 = requests.mapUsingService(counterServiceFactory, (svc, entry) -> {
+            svc.getInCounter().incrementAndGet();
+            svc.startTimer(entry.getIdentifier());
+            return entry;
+        });
+
         // Flake ID Generator is used to generated order numbers for newly created orders
         ServiceFactory<?, FlakeIdGenerator> sequenceGeneratorServiceFactory =
                 ServiceFactories.sharedService(
@@ -86,7 +111,7 @@ public class CreateOrderPipeline implements Runnable {
 
         // Create the CreateOrderEvent object and assign generated order number
         StreamStage<Tuple2<UUID, CreateOrderEvent>> events =
-                requests.mapUsingService(sequenceGeneratorServiceFactory, (seqGen, entry) -> {
+                r2.mapUsingService(sequenceGeneratorServiceFactory, (seqGen, entry) -> {
                             UUID uniqueRequestID = entry.getIdentifier();
                             CreateOrderRequest request = entry.getMessage();
                             long orderID = seqGen.newId();
@@ -118,13 +143,7 @@ public class CreateOrderPipeline implements Runnable {
                             return service.getEventSourcingController();
                         }).toNonCooperative(); // Experimental change
 
-        // Can probably remove these - wasn't Jet threads that were the issue, but
-        // GrpcServer threads.  Fixed with a fixed thread pool in GrpcServer creation.
-        int concurrentOpsPerProcessor = 2; // 4 is default - ran out of native threads on laptop
-        boolean preserveOrder = false;
-
-        events.mapUsingServiceAsync(eventController, concurrentOpsPerProcessor,
-                        preserveOrder, (controller, tuple) -> {
+        StreamStage<MessageWithUUID<CreateOrderResponse>> message = events.mapUsingServiceAsync(eventController, (controller, tuple) -> {
                             CompletableFuture<CompletionInfo> completion = controller.handleEvent(tuple.f1(), tuple.f0());
                             return completion;
                         }).setName("Invoke EventSourcingController.handleEvent")
@@ -138,11 +157,19 @@ public class CreateOrderPipeline implements Runnable {
                             .setOrderNumber(orderNumber)
                             .build();
                     MessageWithUUID<CreateOrderResponse> wrapped = new MessageWithUUID<>(uuid, response);
-                    if (uuid == null) System.err.println("** NULL UUID");
-                    else if (orderNumber == null) System.err.println("** NULL orderNumber");
                     return wrapped;
-                }).setName("Build CreateOrderResponse")
-                .writeTo(GrpcConnector.grpcUnarySink(SERVICE_NAME, METHOD_NAME))
+                }).setName("Build CreateOrderResponse");
+
+        // Increment counter of processed items, stop elapsed timer for the unique identifier
+        StreamStage<MessageWithUUID<CreateOrderResponse>> m2 = message.mapUsingService(counterServiceFactory, (svc, msg) -> {
+            svc.getOKCounter().incrementAndGet();
+            svc.getCompletedCounter().incrementAndGet();
+            svc.stopTime(msg.getIdentifier());
+            return msg;
+        });
+
+        // Send the gRPC response
+        m2.writeTo(GrpcConnector.grpcUnarySink(SERVICE_NAME, METHOD_NAME))
                 .setName("Write response to GrpcSink");
 
         return p;

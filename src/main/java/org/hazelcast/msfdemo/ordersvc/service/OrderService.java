@@ -24,6 +24,8 @@ import com.hazelcast.core.Hazelcast;
 import com.hazelcast.core.HazelcastInstance;
 import com.hazelcast.core.HazelcastInstanceAware;
 import com.hazelcast.map.IMap;
+import com.hazelcast.scheduledexecutor.DuplicateTaskException;
+import com.hazelcast.scheduledexecutor.IScheduledExecutorService;
 import org.example.grpc.GrpcServer;
 import org.hazelcast.eventsourcing.EventSourcingController;
 import org.hazelcast.eventsourcing.event.DomainObject;
@@ -33,18 +35,30 @@ import org.hazelcast.eventsourcing.pubsub.Consumer;
 import org.hazelcast.eventsourcing.pubsub.SubscriptionManager;
 import org.hazelcast.eventsourcing.pubsub.impl.IMapSubMgr;
 import org.hazelcast.eventsourcing.sync.CompletionInfo;
+import org.hazelcast.msfdemo.ordersvc.business.CollectPaymentPipeline;
 import org.hazelcast.msfdemo.ordersvc.business.CreateOrderPipeline;
 import org.hazelcast.msfdemo.ordersvc.business.CreditCheckPipeline;
 import org.hazelcast.msfdemo.ordersvc.business.OrderAPIImpl;
 import org.hazelcast.msfdemo.ordersvc.business.PriceLookupPipeline;
+import org.hazelcast.msfdemo.ordersvc.business.PullInventoryPipeline;
 import org.hazelcast.msfdemo.ordersvc.business.ReserveInventoryPipeline;
+import org.hazelcast.msfdemo.ordersvc.business.ShipmentPipeline;
 import org.hazelcast.msfdemo.ordersvc.configuration.ServiceConfig;
+import org.hazelcast.msfdemo.ordersvc.dashboard.PumpGrafanaStats;
 import org.hazelcast.msfdemo.ordersvc.domain.Order;
+import org.hazelcast.msfdemo.ordersvc.events.CollectPaymentEvent;
+import org.hazelcast.msfdemo.ordersvc.events.CollectPaymentEventSerializer;
 import org.hazelcast.msfdemo.ordersvc.events.CreateOrderEventSerializer;
+import org.hazelcast.msfdemo.ordersvc.events.CreditCheckEvent;
 import org.hazelcast.msfdemo.ordersvc.events.CreditCheckEventSerializer;
 import org.hazelcast.msfdemo.ordersvc.events.OrderEvent;
 import org.hazelcast.msfdemo.ordersvc.events.PriceLookupEventSerializer;
+import org.hazelcast.msfdemo.ordersvc.events.PullInventoryEvent;
+import org.hazelcast.msfdemo.ordersvc.events.PullInventoryEventSerializer;
+import org.hazelcast.msfdemo.ordersvc.events.ReserveInventoryEvent;
 import org.hazelcast.msfdemo.ordersvc.events.ReserveInventoryEventSerializer;
+import org.hazelcast.msfdemo.ordersvc.events.ShipOrderEventSerializer;
+import org.hazelcast.msfdemo.ordersvc.util.ResultCombiner;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
@@ -58,6 +72,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 
 public class OrderService implements HazelcastInstanceAware {
@@ -89,7 +105,10 @@ public class OrderService implements HazelcastInstanceAware {
                     .addSerializer(new CreateOrderEventSerializer())
                     .addSerializer(new PriceLookupEventSerializer())
                     .addSerializer(new CreditCheckEventSerializer())
-                    .addSerializer(new ReserveInventoryEventSerializer());
+                    .addSerializer(new ReserveInventoryEventSerializer())
+                    .addSerializer(new CollectPaymentEventSerializer())
+                    .addSerializer(new PullInventoryEventSerializer())
+                    .addSerializer(new ShipOrderEventSerializer());
 
 
             // NOTE: we may need additional configuration here!
@@ -109,7 +128,10 @@ public class OrderService implements HazelcastInstanceAware {
                     .addSerializer(new CreateOrderEventSerializer())
                     .addSerializer(new PriceLookupEventSerializer())
                     .addSerializer(new CreditCheckEventSerializer())
-                    .addSerializer(new ReserveInventoryEventSerializer());
+                    .addSerializer(new ReserveInventoryEventSerializer())
+                    .addSerializer(new CollectPaymentEventSerializer())
+                    .addSerializer(new PullInventoryEventSerializer())
+                    .addSerializer(new ShipOrderEventSerializer());
 
             logger.info("Adding classes needed outside of pipelines via UserCodeDeployment");
             config.getUserCodeDeploymentConfig().setEnabled(true)
@@ -221,13 +243,33 @@ public class OrderService implements HazelcastInstanceAware {
             PriceLookupPipeline pricePipeline = new PriceLookupPipeline(this, cc, dependencies);
             executor.submit(pricePipeline);
 
+            // Start process that combines results from Credit Check and Reserve Inventory events
+            // prior to starting those pipelines ...
+            ResultCombiner<String> combo1 = new ResultCombiner<>(hazelcast)
+                    .<String,CreditCheckEvent>addInput("CreditCheckEvents")
+                    .<String, ReserveInventoryEvent>addInput("ReserveInventoryEvents")
+                    .addOutput("JRN.CCandIRCombo");
+
             CreditCheckPipeline creditPipeline = new CreditCheckPipeline(this, cc, dependencies);
             executor.submit(creditPipeline);
 
             ReserveInventoryPipeline reserveInventory = new ReserveInventoryPipeline(this, cc, dependencies);
             executor.submit(reserveInventory);
 
-            // TODO: continue adding new pipelines until all done
+            ResultCombiner<String> combo2 = new ResultCombiner<>(hazelcast)
+                    .<String, CollectPaymentEvent>addInput("CollectPaymentEvents")
+                    .<String, PullInventoryEvent>addInput("PullInventoryEvents")
+                    .addOutput("JRN.CPandPICombo");
+
+            CollectPaymentPipeline collectPaymentPipeline = new CollectPaymentPipeline(this, cc, dependencies);
+            executor.submit(collectPaymentPipeline);
+
+            PullInventoryPipeline pullInventory = new PullInventoryPipeline(this, cc, dependencies);
+            executor.submit(pullInventory);
+
+            ShipmentPipeline shipOrder = new ShipmentPipeline(this, cc, dependencies);
+            executor.submit(shipOrder);
+
 
         } catch (Throwable t) {
             t.printStackTrace();
@@ -249,8 +291,37 @@ public class OrderService implements HazelcastInstanceAware {
         initEventSourcingController(hazelcast);
     }
 
+    public void initDashboard() {
+        String grafanaEnv = "ORDERSVC.GRAFANA";
+        String grafanaHost = null;
+        // Pump stats to Grafana dashboard even during benchmark -- at least temporarily
+        if (true /*getRunMode() == RunMode.Demo*/) {
+            String host = System.getProperty(grafanaEnv);
+            // Check for command-line override of GrafanaHost
+            if (grafanaHost != null)
+                host = grafanaHost;
+            if (host!=null && host.length() > 0) {
+                logger.info("Graphite sink: '" + grafanaEnv + "'=='" + host + "'");
+            } else {
+                logger.info("Graphite sink: '" + grafanaEnv + "'=='" + host
+                        + "', using localhost for Graphite.");
+                host = "localhost";
+            }
+
+            PumpGrafanaStats stats = new PumpGrafanaStats(host);
+            try {
+                IScheduledExecutorService dses = hazelcast.getScheduledExecutorService("scheduledExecutor");
+                dses.scheduleAtFixedRate(stats, 20, 5, TimeUnit.SECONDS);
+            } catch (DuplicateTaskException dte) {
+                ; // OK to ignore
+            } catch (RejectedExecutionException ree) {
+                logger.info("PumpGrafanaStats scheduled execution rejected");
+            }
+        }
+    }
+
     public void subscribe(Class<? extends SourcedEvent> eventClass, Consumer c) {
-        IMapSubMgr<? extends SourcedEvent> imsm = new IMapSubMgr<>();
+        IMapSubMgr<? extends SourcedEvent> imsm = new IMapSubMgr<>("OrderEvent");
         SubscriptionManager.register(hazelcast, eventClass, imsm);
         imsm.subscribe(eventClass.getName(), c);
     }
@@ -260,15 +331,18 @@ public class OrderService implements HazelcastInstanceAware {
         OrderService orderService = new OrderService();
         orderService.initHazelcast(props.isEmbedded(), props.getClientConfig());
 
+
+
         // Need service initialized before pipelines (APIBufferPairs)
         OrderAPIImpl serviceImpl = new OrderAPIImpl(orderService.getHazelcastInstance());
         //acctService.initEventStore(acctService.getHazelcastInstance());
         orderService.initEventSourcingController(orderService.getHazelcastInstance());
-        orderService.initPipelines(orderService.getHazelcastInstance());
-        // TODO: maybe initDAO here at some point, for now just raw IMap
+        // Pipelines may request view map so init it before pipelines
         String mapName = orderService.getEventSourcingController().getViewMapName();
         // Controller has getViewMap but it gives us 'DomainObject' as value rather than 'Order'
         orderService.orderView = orderService.hazelcast.getMap(mapName);
+        orderService.initPipelines(orderService.getHazelcastInstance());
+        orderService.initDashboard();
 
         final GrpcServer server = new GrpcServer(serviceImpl, props.getGrpcPort());
         logger.info("GRPC Server started from OrderService");

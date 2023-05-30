@@ -14,15 +14,12 @@ import org.hazelcast.msfdemo.ordersvc.clients.InventoryServiceClient;
 import org.hazelcast.msfdemo.ordersvc.events.CreateOrderEvent;
 import org.hazelcast.msfdemo.ordersvc.events.OrderEvent;
 import org.hazelcast.msfdemo.ordersvc.events.OrderGrpc;
-import org.hazelcast.msfdemo.ordersvc.events.OrderOuterClass;
 
 import static org.hazelcast.msfdemo.ordersvc.events.OrderOuterClass.CreateOrderRequest;
 import static org.hazelcast.msfdemo.ordersvc.events.OrderOuterClass.CreateOrderResponse;
 import static org.hazelcast.msfdemo.ordersvc.events.OrderOuterClass.OrderCreated;
 import static org.hazelcast.msfdemo.ordersvc.events.OrderOuterClass.SubscribeRequest;
 
-
-import java.math.BigDecimal;
 import java.util.UUID;
 import java.util.logging.Logger;
 
@@ -34,7 +31,7 @@ public class OrderAPIImpl extends OrderGrpc.OrderImplBase {
     private final APIBufferPair<CreateOrderRequest,CreateOrderResponse> createOrderHandler;
 
     // Other services we communicate with
-    private InventoryServiceClient inventoryServiceClient;
+    private final InventoryServiceClient inventoryServiceClient;
 
     // Each service manages its own subscription manager
     private final SubscriptionManager<OrderEvent> submgr;
@@ -46,19 +43,13 @@ public class OrderAPIImpl extends OrderGrpc.OrderImplBase {
 
         bufferPairsForAPI = hazelcast.getMap(serviceName+"_APIS");
 
-        createOrderHandler = new APIBufferPair(hazelcast,"createOrder", Arity.UNARY, Arity.UNARY);
+        createOrderHandler = new APIBufferPair<>(hazelcast,"createOrder", Arity.UNARY, Arity.UNARY);
         bufferPairsForAPI.put("createOrder", createOrderHandler);
-
         inventoryServiceClient = new InventoryServiceClient();
-
-        // TODO: continue adding buffer pairs for each new API
-
-        //orderDAO = new OrderDAO(hazelcast);
 
         // Register all the events we're responsible for with the Subscription Manager
         submgr = new ReliableTopicSubMgr<>();
         SubscriptionManager.register(hazelcast, CreateOrderEvent.class, submgr);
-
     }
 
     @Override
@@ -70,7 +61,7 @@ public class OrderAPIImpl extends OrderGrpc.OrderImplBase {
         responseObserver.onNext(response);
         responseObserver.onCompleted();
 
-        BigDecimal price = inventoryServiceClient.lookupPrice(request.getItemNumber());
+        //BigDecimal price = inventoryServiceClient.lookupPrice(request.getItemNumber());
         // Order.setExtendedPrice - if we just write to the DAO directly we have no
         // audit trail.
     }

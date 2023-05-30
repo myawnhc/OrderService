@@ -30,6 +30,7 @@ import org.hazelcast.msfdemo.ordersvc.events.PriceLookupEvent;
 import org.hazelcast.msfdemo.ordersvc.service.OrderService;
 
 import java.net.URL;
+import java.util.AbstractMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -81,7 +82,7 @@ public class CreditCheckPipeline implements Runnable {
     private static Pipeline createPipeline() {
         Pipeline p = Pipeline.create();
 
-        SubscriptionManager<PriceLookupEvent> eventSource = new IMapSubMgr<>();
+        SubscriptionManager<PriceLookupEvent> eventSource = new IMapSubMgr<>("OrderEvent");
         SubscriptionManager.register(service.getHazelcastInstance(), PriceLookupEvent.class,
                 eventSource);
 
@@ -141,8 +142,10 @@ public class CreditCheckPipeline implements Runnable {
                     return completion;
                 }).setName("Invoke EventSourcingController.handleEvent")
 
-                // Send response - possibly nop if we're just responding to event
-                .writeTo(Sinks.noop());
+                // Write event to map where it will trigger subsequent pipeline stage when combined
+                .writeTo(Sinks.map("CreditCheckEvents",
+                        completionInfo -> completionInfo.getEvent().getKey(),
+                        completionInfo -> completionInfo.getEvent()));
 
         return p;
     }

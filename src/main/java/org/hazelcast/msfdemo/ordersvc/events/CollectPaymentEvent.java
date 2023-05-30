@@ -20,47 +20,42 @@ import com.hazelcast.core.HazelcastJsonValue;
 import com.hazelcast.org.json.JSONObject;
 import com.hazelcast.sql.SqlRow;
 import org.hazelcast.msfdemo.ordersvc.domain.Order;
-import java.io.Serializable;
-import java.util.function.UnaryOperator;
 
-import static org.hazelcast.msfdemo.ordersvc.events.OrderOuterClass.CreditChecked;
+import java.math.BigDecimal;
 
-public class CreditCheckEvent extends OrderEvent implements Serializable, UnaryOperator<Order> {
+public class CollectPaymentEvent extends OrderEvent {
 
-    public static final String ACCT_NUMBER = "acccountNumber";
-    public static final String AMT_REQUESTED = "amountRequested";
-    public static final String APPROVED = "approved";
+    public static final String ACCOUNT_NUMBER = "accountNumber";
+    public static final String AMOUNT_CHARGED = "amountCharged";
+    public static final String ORDER_NUMBER = "orderNumber";
 
-
-    public CreditCheckEvent(String orderNumber, String acctNumber,
-                            int amountRequested, boolean approved) {
+    public CollectPaymentEvent(String orderNumber, String accountNumber, int amountCharged) {
         this.key = orderNumber;
-        this.eventClass = CreditCheckEvent.class.getCanonicalName();
+        this.eventClass = CollectPaymentEvent.class.getCanonicalName();
         JSONObject jobj = new JSONObject();
-        jobj.put(ACCT_NUMBER, acctNumber);
-        jobj.put(AMT_REQUESTED, amountRequested);
-        jobj.put(APPROVED, approved);
+        jobj.put(ORDER_NUMBER, orderNumber);
+        jobj.put(ACCOUNT_NUMBER, accountNumber);
+        jobj.put(AMOUNT_CHARGED, amountCharged);
         setPayload(new HazelcastJsonValue(jobj.toString()));
     }
 
-    public CreditCheckEvent(SqlRow row) {
+    public CollectPaymentEvent(SqlRow row) {
         this.key = row.getObject("key");
         HazelcastJsonValue payload = row.getObject("payload");
         setPayload(payload);
-        eventClass = CreditCheckEvent.class.getCanonicalName();
+        eventClass = CollectPaymentEvent.class.getCanonicalName();
         setTimestamp(row.getObject("timestamp"));
     }
 
     @Override
     public Order apply(Order order) {
-//        EnumSet<WaitingOn> waits = order.getWaitingOn();
-//        waits.remove(WaitingOn.CREDIT_CHECK);
-//        if (waits.isEmpty()) {
-//            waits.add(WaitingOn.CHARGE_ACCOUNT);
-//            waits.add(WaitingOn.PULL_INVENTORY);
-//        }
-//        return order;
-        //System.out.println("*** CreditCheckEvent.apply is a nop - this may be OK ***");
+        //order.setWaitingOn(EnumSet.of(WaitingOn.CREDIT_CHECK, WaitingOn.RESERVE_INVENTORY));
         return order;
+    }
+
+    @Override
+    public String toString() {
+        JSONObject jobj = new JSONObject(payload.getValue());
+        return "CollectPaymentEvent for order " + getKey() + " amount charged " + jobj.getInt(AMOUNT_CHARGED);
     }
 }

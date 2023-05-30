@@ -5,38 +5,31 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="070816df-572c-4037-9080-377eec076769" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/pom.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/business/CollectPaymentPipeline.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/business/CreateOrderPipeline.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/business/CreditCheckPipeline.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/business/OrderAPIImpl.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/business/PriceLookupPipeline.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/business/ReserveInventoryPipeline.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/clients/InventoryServiceClient.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/configuration/ServiceConfig.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/domain/Order.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/events/CompactSerializerBase.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/events/CreateOrderEvent.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/events/CreateOrderEventSerializer.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/events/CreditCheckEvent.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/events/CreditCheckEventSerializer.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/events/OrderEvent.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/events/PriceLookupEvent.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/events/PriceLookupEventSerializer.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/events/ReserveInventoryEvent.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/events/ReserveInventoryEventSerializer.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/service/OrderService.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/main/resources/hazelcast-client.local.yaml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/main/resources/hazelcast.yaml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/main/resources/service.yaml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/test/java/org/hazelcast/msftest/ordersvc/CreateOrderTest.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/test/resources/hazelcast-client.local.yaml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/test/resources/hazelcast.yaml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/test/resources/service.yaml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/uiDesigner.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/business/PullInventoryPipeline.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/business/ShipmentPipeline.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/dashboard/CounterService.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/dashboard/Graphite.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/dashboard/PumpGrafanaStats.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/events/CollectPaymentEvent.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/events/CollectPaymentEventSerializer.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/events/PullInventoryEvent.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/events/PullInventoryEventSerializer.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/events/ShipOrderEvent.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/events/ShipOrderEventSerializer.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/util/ResultCombiner.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/pom.xml" beforeDir="false" afterPath="$PROJECT_DIR$/pom.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/business/CollectPaymentPipeline.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/business/CollectPaymentPipeline.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/business/CreateOrderPipeline.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/business/CreateOrderPipeline.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/business/CreditCheckPipeline.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/business/CreditCheckPipeline.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/business/OrderAPIImpl.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/business/OrderAPIImpl.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/business/PriceLookupPipeline.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/business/PriceLookupPipeline.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/business/ReserveInventoryPipeline.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/business/ReserveInventoryPipeline.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/events/CreditCheckEvent.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/events/CreditCheckEvent.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/events/OrderEvent.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/events/OrderEvent.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/events/ReserveInventoryEvent.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/events/ReserveInventoryEvent.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/service/OrderService.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/org/hazelcast/msfdemo/ordersvc/service/OrderService.java" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -66,6 +59,7 @@
   "keyToString": {
     "RunOnceActivity.OpenProjectViewOnStart": "true",
     "RunOnceActivity.ShowReadmeOnStart": "true",
+    "SHARE_PROJECT_CONFIGURATION_FILES": "true",
     "last_opened_file_path": "/Users/myawn/Documents/GitHub/OrderService/src/test"
   }
 }]]></component>
@@ -75,11 +69,11 @@
       <recent name="$PROJECT_DIR$/src/main/resources" />
     </key>
     <key name="CopyClassDialog.RECENTS_KEY">
-      <recent name="org.hazelcast.msfdemo.ordersvc.business" />
+      <recent name="org.hazelcast.msfdemo.ordersvc.dashboard" />
       <recent name="org.hazelcast.msfdemo.ordersvc.events" />
+      <recent name="org.hazelcast.msfdemo.ordersvc.business" />
       <recent name="org.hazelcast.msfdemo.ordersvc.clients" />
       <recent name="org.hazelcast.msfdemo.ordersvc.configuration" />
-      <recent name="org.hazelcast.msfdemo.ordersvc.domain" />
     </key>
   </component>
   <component name="RunManager" selected="Application.OrderService">
@@ -89,6 +83,19 @@
       <extension name="coverage">
         <pattern>
           <option name="PATTERN" value="org.hazelcast.msfdemo.ordersvc.service.*" />
+          <option name="ENABLED" value="true" />
+        </pattern>
+      </extension>
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="ResultCombiner" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
+      <option name="MAIN_CLASS_NAME" value="org.hazelcast.msfdemo.ordersvc.util.ResultCombiner" />
+      <module name="OrderService" />
+      <extension name="coverage">
+        <pattern>
+          <option name="PATTERN" value="org.hazelcast.msfdemo.ordersvc.util.*" />
           <option name="ENABLED" value="true" />
         </pattern>
       </extension>
@@ -114,6 +121,7 @@
     <recent_temporary>
       <list>
         <item itemvalue="Application.OrderService" />
+        <item itemvalue="Application.ResultCombiner" />
         <item itemvalue="JUnit.CreateOrderTest" />
       </list>
     </recent_temporary>
@@ -127,6 +135,18 @@
       <option name="presentableId" value="Default" />
       <updated>1679339102292</updated>
     </task>
+    <task id="LOCAL-00001" summary="Initial commit">
+      <created>1681240213902</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1681240213902</updated>
+    </task>
+    <option name="localTasksCounter" value="2" />
     <servers />
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="Initial commit" />
+    <option name="LAST_COMMIT_MESSAGE" value="Initial commit" />
   </component>
 </project>

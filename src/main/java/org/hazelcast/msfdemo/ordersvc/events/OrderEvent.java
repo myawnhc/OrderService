@@ -23,4 +23,6 @@ import org.hazelcast.msfdemo.ordersvc.domain.Order;
 import java.util.function.UnaryOperator;
 
 public abstract class OrderEvent extends SourcedEvent<Order, String> implements UnaryOperator<Order> {
+    /** Convenience method, getKey would work just as well but this is more self-documenting */
+    public String getOrderNumber() { return key; }
 }

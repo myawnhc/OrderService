@@ -73,7 +73,7 @@ public class PriceLookupPipeline implements Runnable {
     private static Pipeline createPipeline() {
         Pipeline p = Pipeline.create();
 
-        SubscriptionManager<CreateOrderEvent> eventSource = new IMapSubMgr<>();
+        SubscriptionManager<CreateOrderEvent> eventSource = new IMapSubMgr<>("OrderEvent");
         SubscriptionManager.register(service.getHazelcastInstance(), CreateOrderEvent.class,
                 eventSource);
         // With getStreamSource, do not need to actually call isubmgr.subscribe ...

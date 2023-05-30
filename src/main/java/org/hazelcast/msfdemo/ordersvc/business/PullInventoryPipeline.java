@@ -1,7 +1,6 @@
 package org.hazelcast.msfdemo.ordersvc.business;
 
 import com.hazelcast.core.HazelcastInstance;
-import com.hazelcast.core.HazelcastJsonValue;
 import com.hazelcast.jet.config.JobConfig;
 import com.hazelcast.jet.datamodel.Tuple2;
 import com.hazelcast.jet.grpc.GrpcService;
@@ -14,17 +13,14 @@ import com.hazelcast.jet.pipeline.Sources;
 import com.hazelcast.org.json.JSONObject;
 import io.grpc.ManagedChannelBuilder;
 import org.hazelcast.eventsourcing.EventSourcingController;
-import org.hazelcast.eventsourcing.pubsub.SubscriptionManager;
-import org.hazelcast.eventsourcing.pubsub.impl.IMapSubMgr;
 import org.hazelcast.eventsourcing.sync.CompletionInfo;
-import org.hazelcast.msfdemo.acctsvc.events.AccountGrpc;
-import org.hazelcast.msfdemo.acctsvc.events.AccountOuterClass;
+import org.hazelcast.msfdemo.invsvc.events.InventoryGrpc;
+import org.hazelcast.msfdemo.invsvc.events.InventoryOuterClass;
 import org.hazelcast.msfdemo.ordersvc.configuration.ServiceConfig;
 import org.hazelcast.msfdemo.ordersvc.domain.Order;
-import org.hazelcast.msfdemo.ordersvc.events.CollectPaymentEvent;
 import org.hazelcast.msfdemo.ordersvc.events.CreditCheckEvent;
 import org.hazelcast.msfdemo.ordersvc.events.OrderEvent;
-import org.hazelcast.msfdemo.ordersvc.events.PriceLookupEvent;
+import org.hazelcast.msfdemo.ordersvc.events.PullInventoryEvent;
 import org.hazelcast.msfdemo.ordersvc.events.ReserveInventoryEvent;
 import org.hazelcast.msfdemo.ordersvc.service.OrderService;
 
@@ -34,19 +30,18 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.logging.Logger;
 
-import static com.hazelcast.jet.datamodel.Tuple2.tuple2;
 import static com.hazelcast.jet.grpc.GrpcServices.unaryService;
 
-public class CollectPaymentPipeline implements Runnable {
+public class PullInventoryPipeline implements Runnable {
 
     private static OrderService service;
     private List<URL> dependencies;
-    private static String collectPaymentServiceHost;
-    private static int collectPaymentServicePort;
-    private static final Logger logger = Logger.getLogger(CollectPaymentPipeline.class.getName());
+    private static String inventoryServiceHost;
+    private static int inventoryServicePort;
+    private static final Logger logger = Logger.getLogger(PullInventoryPipeline.class.getName());
 
-    public CollectPaymentPipeline(OrderService service, byte[] clientConfig, List<URL> dependentJars) {
-        CollectPaymentPipeline.service = service;
+    public PullInventoryPipeline(OrderService service, byte[] clientConfig, List<URL> dependentJars) {
+        PullInventoryPipeline.service = service;
         if (service == null)
             throw new IllegalArgumentException("Service cannot be null");
         // When running in client/server mode, service won't be initialized yet
@@ -56,18 +51,18 @@ public class CollectPaymentPipeline implements Runnable {
         this.dependencies = dependentJars;
 
         // Foreign service configuration
-        ServiceConfig.ServiceProperties props = ServiceConfig.get("account-service");
-        collectPaymentServiceHost = props.getGrpcHostname();
-        collectPaymentServicePort = props.getGrpcPort();
+        ServiceConfig.ServiceProperties props = ServiceConfig.get("inventory-service");
+        inventoryServiceHost = props.getGrpcHostname();
+        inventoryServicePort = props.getGrpcPort();
     }
 
     @Override
     public void run() {
         try {
-            logger.info("CollectPaymentPipeline.run() invoked, submitting job");
+            logger.info("PullInventoryPipeline.run() invoked, submitting job");
             HazelcastInstance hazelcast = service.getHazelcastInstance();
             JobConfig jobConfig = new JobConfig();
-            jobConfig.setName("OrderService.CollectPayment");
+            jobConfig.setName("OrderService.PullInventory");
             for (URL url : dependencies)
                 jobConfig.addJar(url);
             hazelcast.getJet().newJob(createPipeline(), jobConfig);
@@ -79,10 +74,10 @@ public class CollectPaymentPipeline implements Runnable {
     private static Pipeline createPipeline() {
         Pipeline p = Pipeline.create();
 
-        ServiceFactory<?, ? extends GrpcService<AccountOuterClass.AdjustBalanceRequest, AccountOuterClass.AdjustBalanceResponse>>
-                collectPaymentService = unaryService(
-                () -> ManagedChannelBuilder.forAddress(collectPaymentServiceHost, collectPaymentServicePort).usePlaintext(),
-                channel -> AccountGrpc.newStub(channel)::payment
+        ServiceFactory<?, ? extends GrpcService<InventoryOuterClass.PullRequest, InventoryOuterClass.PullResponse>>
+                inventoryService = unaryService(
+                () -> ManagedChannelBuilder.forAddress(inventoryServiceHost, inventoryServicePort).usePlaintext(),
+                channel -> InventoryGrpc.newStub(channel)::pull
         );
 
         // EventSourcingController will add event to event store, update the in-memory
@@ -97,45 +92,50 @@ public class CollectPaymentPipeline implements Runnable {
                 .withoutTimestamps()
                 .setName("Read combined CreditCheck + InventoryReserve items from Map Journal")
 
-                // Collect payment (AccountService.collectPayment)
-                // Invoke the Account adjust balance service via gRPC
-                .mapUsingServiceAsync(collectPaymentService, (service, entry) -> {
+                // Pull requested inventory
+                // Invoke the pull service via gRPC
+                .mapUsingServiceAsync(inventoryService, (service, entry) -> {
                     CreditCheckEvent creditCheckEvent = entry.getValue().f0();
-                    // Not sure that we actually need the inventory event - but we should probably ensure that it was successful
                     ReserveInventoryEvent reserveEvent = entry.getValue().f1();
-                    String orderNumber = creditCheckEvent.getOrderNumber();
-                    JSONObject jobj = new JSONObject(creditCheckEvent.getPayload().getValue());
-                    String acctNumber = jobj.getString(CreditCheckEvent.ACCT_NUMBER);
-                    int amount = jobj.getInt(CreditCheckEvent.AMT_REQUESTED);
-                    // TODO: do we reject non-approved requests here or are they filtered
-                    //  out before they reach this point?
-
-                    AccountOuterClass.AdjustBalanceRequest request = AccountOuterClass.AdjustBalanceRequest.newBuilder()
-                            .setAccountNumber(acctNumber)
-                            .setAmount(amount)
+                    //Order orderDO = reserveEvent.getOrderNumber()
+                    JSONObject jobj = new JSONObject(reserveEvent.getPayload().getValue());
+                    String orderNumber = creditCheckEvent.getKey();
+                    String itemNumber = jobj.getString(ReserveInventoryEvent.ITEM_NUMBER);
+                    String location = jobj.getString(ReserveInventoryEvent.LOCATION);
+                    int quantity = jobj.getInt(ReserveInventoryEvent.QUANTITY);
+                    String acctNumber = jobj.getString(ReserveInventoryEvent.ACCT_NUMBER);
+                    InventoryOuterClass.PullRequest request = InventoryOuterClass.PullRequest.newBuilder()
+                            .setItemNumber(itemNumber)
+                            .setLocation(location)
+                            .setQuantity(quantity)
                             .build();
 
                     // Invoke the gRPC service asynchronously
                     return service.call(request)
-                            // Create the CollectPaymentEvent
+                            // Create the CreditCheckEvent.
                             .thenApply(response -> {
-                                // we don't actually need the balance, just whether the payment succeeded
-                                int balance = response.getNewBalance();
-                                CollectPaymentEvent paymentEvent = new CollectPaymentEvent(orderNumber,
+                                boolean success = response.getSuccess();
+                                PullInventoryEvent pullInventoryEvent = new PullInventoryEvent(orderNumber,
                                         acctNumber,
-                                        amount);
-                                return paymentEvent;
+                                        itemNumber,
+                                        location,
+                                        quantity);
+                                if (!success) {
+                                    String failureReason = response.getReason();
+                                    pullInventoryEvent.setFailureReason(failureReason);
+                                }
+                                return pullInventoryEvent;
                             });
-                }).setName("Invoke CollectPayment on AccountService")
+                }).setName("Invoke PullInventory on InventoryService")
 
                 // Call HandleEvent (append event, update materialized view, publish event)
-                .mapUsingServiceAsync(eventController, (controller, collectPaymentEvent) -> {
-                    CompletableFuture<CompletionInfo> completion = controller.handleEvent(collectPaymentEvent, UUID.randomUUID());
+                .mapUsingServiceAsync(eventController, (controller, pullInventoryEvent) -> {
+                    CompletableFuture<CompletionInfo> completion = controller.handleEvent(pullInventoryEvent, UUID.randomUUID());
                     return completion;
                 }).setName("Invoke EventSourcingController.handleEvent")
 
-                // Write event to map where it will trigger subsequent pipeline stage when combined
-                .writeTo(Sinks.map("CollectPaymentEvents",
+                // Write event to map where it will trigger subsequent pipeline stage
+                .writeTo(Sinks.map("PullInventoryEvents",
                         completionInfo -> completionInfo.getEvent().getKey(),
                         completionInfo -> completionInfo.getEvent()));
 

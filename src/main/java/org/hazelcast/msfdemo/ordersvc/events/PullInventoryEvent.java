@@ -21,9 +21,7 @@ import com.hazelcast.org.json.JSONObject;
 import com.hazelcast.sql.SqlRow;
 import org.hazelcast.msfdemo.ordersvc.domain.Order;
 
-import static org.hazelcast.msfdemo.ordersvc.events.OrderOuterClass.InventoryReserved;
-
-public class ReserveInventoryEvent extends OrderEvent {
+public class PullInventoryEvent extends OrderEvent {
 
     public static final String ACCT_NUMBER = "accountNumber";
     public static final String ITEM_NUMBER = "itemNumber";
@@ -31,9 +29,9 @@ public class ReserveInventoryEvent extends OrderEvent {
     public static final String LOCATION = "location";
     public static final String FAILURE_REASON = "failureReason";
 
-    public ReserveInventoryEvent(String orderNumber, String acctNumber, String itemNumber, String location, int quantity) {
+    public PullInventoryEvent(String orderNumber, String acctNumber, String itemNumber, String location, int quantity) {
         this.key = orderNumber;
-        this.eventClass = ReserveInventoryEvent.class.getCanonicalName();
+        this.eventClass = PullInventoryEvent.class.getCanonicalName();
         JSONObject jobj = new JSONObject();
         jobj.put(ACCT_NUMBER, acctNumber);
         jobj.put(ITEM_NUMBER, itemNumber);
@@ -48,11 +46,11 @@ public class ReserveInventoryEvent extends OrderEvent {
         payload = new HazelcastJsonValue(jobj.toString());
     }
 
-    public ReserveInventoryEvent(SqlRow row) {
+    public PullInventoryEvent(SqlRow row) {
         this.key = row.getObject("key");
         HazelcastJsonValue payload = row.getObject("payload");
         setPayload(payload);
-        eventClass = ReserveInventoryEvent.class.getCanonicalName();
+        eventClass = PullInventoryEvent.class.getCanonicalName();
         setTimestamp(row.getObject("timestamp"));
     }
 
@@ -75,7 +73,7 @@ public class ReserveInventoryEvent extends OrderEvent {
     @Override
     public String toString() {
         JSONObject jobj = new JSONObject(payload.getValue());
-        return "ReserveInventoryEvent I:" + jobj.getString(ITEM_NUMBER) + " Q:" + jobj.getInt(QUANTITY);
+        return "PullInventoryEvent I:" + jobj.getString(ITEM_NUMBER) + " Q:" + jobj.getInt(QUANTITY);
     }
 }
 
