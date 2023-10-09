@@ -1,9 +1,9 @@
 package org.hazelcast.msfdemo.ordersvc.business;
 
 import com.hazelcast.core.HazelcastInstance;
-import com.hazelcast.crdt.pncounter.PNCounter;
 import com.hazelcast.flakeidgen.FlakeIdGenerator;
 import com.hazelcast.jet.config.JobConfig;
+import com.hazelcast.jet.core.metrics.Metrics;
 import com.hazelcast.jet.datamodel.Tuple2;
 import com.hazelcast.jet.pipeline.Pipeline;
 import com.hazelcast.jet.pipeline.ServiceFactories;
@@ -17,13 +17,11 @@ import org.hazelcast.msfdemo.ordersvc.dashboard.CounterService;
 import org.hazelcast.msfdemo.ordersvc.domain.Order;
 import org.hazelcast.msfdemo.ordersvc.events.CreateOrderEvent;
 import org.hazelcast.msfdemo.ordersvc.events.OrderEvent;
-import org.hazelcast.msfdemo.ordersvc.events.OrderOuterClass;
 import org.hazelcast.msfdemo.ordersvc.service.OrderService;
 
 import static org.hazelcast.msfdemo.ordersvc.events.OrderOuterClass.CreateOrderRequest;
 import static org.hazelcast.msfdemo.ordersvc.events.OrderOuterClass.CreateOrderResponse;
 
-import java.math.BigDecimal;
 import java.net.URL;
 import java.util.List;
 import java.util.Map;
@@ -38,15 +36,6 @@ public class CreateOrderPipeline implements Runnable {
     private static OrderService service;
     private List<URL> dependencies;
     private static final Logger logger = Logger.getLogger(CreateOrderPipeline.class.getName());
-
-//    // Metrics moved to CounterService class
-//    public final static String PNC_CREATEORDER_IN = "CreateOrder_IN";
-//    public final static String PNC_CREATEORDER_OK = "CreateOrder_OK";
-//    public final static String PNC_CREATEORDER_FAIL = "CreateOrder_FAIL";
-//    public final static String PNC_CREATEORDER_COMPLETE = "CreateOrder_COMPLETE";
-//    public final static String PNC_CREATEORDER_ELAPSED_OK = "CreateOrder_ELAPSED_OK";
-//    public final static String PNC_CREATEORDER_ELAPSED_FAIL = "CreateOrder_ELAPSED_FAIL";
-
 
     public CreateOrderPipeline(OrderService service, byte[] clientConfig, List<URL> dependentJars) {
         CreateOrderPipeline.service = service;
@@ -91,7 +80,6 @@ public class CreateOrderPipeline implements Runnable {
                 ServiceFactories.sharedService(
                         (ctx) -> new CounterService(ctx.hazelcastInstance(), "CreateOrder")
                 );
-
 
         // Update IN counter and start timer for this UUID + Pipeline Stage
         StreamStage<MessageWithUUID<CreateOrderRequest>> r2 = requests.mapUsingService(counterServiceFactory, (svc, entry) -> {
@@ -157,16 +145,22 @@ public class CreateOrderPipeline implements Runnable {
                             .setOrderNumber(orderNumber)
                             .build();
                     MessageWithUUID<CreateOrderResponse> wrapped = new MessageWithUUID<>(uuid, response);
+                    Metrics.metric("COP.completions").increment();
                     return wrapped;
                 }).setName("Build CreateOrderResponse");
 
         // Increment counter of processed items, stop elapsed timer for the unique identifier
         StreamStage<MessageWithUUID<CreateOrderResponse>> m2 = message.mapUsingService(counterServiceFactory, (svc, msg) -> {
-            svc.getOKCounter().incrementAndGet();
-            svc.getCompletedCounter().incrementAndGet();
-            svc.stopTime(msg.getIdentifier());
-            return msg;
-        });
+            try {
+                svc.getOKCounter().incrementAndGet();
+                svc.getCompletedCounter().incrementAndGet();
+                svc.stopTime(msg.getIdentifier());
+                return msg;
+            } catch (Exception e) {
+                e.printStackTrace(); // Rare: See Exception in ProcessorTasklet with no further info in this stage
+                return msg;
+            }
+        }).setName("Update completion counters");
 
         // Send the gRPC response
         m2.writeTo(GrpcConnector.grpcUnarySink(SERVICE_NAME, METHOD_NAME))

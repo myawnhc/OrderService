@@ -2,12 +2,12 @@ package org.hazelcast.msfdemo.ordersvc.business;
 
 import com.hazelcast.core.HazelcastInstance;
 import com.hazelcast.jet.config.JobConfig;
+import com.hazelcast.jet.core.metrics.Metrics;
 import com.hazelcast.jet.grpc.GrpcService;
 import com.hazelcast.jet.pipeline.Pipeline;
 import com.hazelcast.jet.pipeline.ServiceFactories;
 import com.hazelcast.jet.pipeline.ServiceFactory;
 import com.hazelcast.jet.pipeline.Sinks;
-import com.hazelcast.org.json.JSONObject;
 import io.grpc.ManagedChannelBuilder;
 import org.hazelcast.eventsourcing.EventSourcingController;
 import org.hazelcast.eventsourcing.pubsub.SubscriptionManager;
@@ -22,6 +22,7 @@ import org.hazelcast.msfdemo.ordersvc.events.OrderEvent;
 import org.hazelcast.msfdemo.ordersvc.events.PriceLookupEvent;
 import org.hazelcast.msfdemo.ordersvc.service.OrderService;
 
+import java.math.BigDecimal;
 import java.net.URL;
 import java.util.List;
 import java.util.UUID;
@@ -74,7 +75,7 @@ public class PriceLookupPipeline implements Runnable {
         Pipeline p = Pipeline.create();
 
         SubscriptionManager<CreateOrderEvent> eventSource = new IMapSubMgr<>("OrderEvent");
-        SubscriptionManager.register(service.getHazelcastInstance(), CreateOrderEvent.class,
+        SubscriptionManager.register(service.getHazelcastInstance(), CreateOrderEvent.QUAL_EVENT_NAME,
                 eventSource);
         // With getStreamSource, do not need to actually call isubmgr.subscribe ...
         // Guess there is no logical place to unregister since pipeline will run as long
@@ -94,38 +95,42 @@ public class PriceLookupPipeline implements Runnable {
                 );
 
         // Stage 0: Read events from MapJournal
-        p.readFrom(eventSource.getStreamSource("CreateOrderEvent"))
+        p.readFrom(eventSource.getStreamSource(CreateOrderEvent.QUAL_EVENT_NAME))
                 .withoutTimestamps()
                 .setName("Read CreateOrderEvents from Map Journal")
 
         // Stage 1: Lookup the price (InventoryService.priceLookup)
                 // Invoke the Inventory price lookup service via gRPC
                 .mapUsingServiceAsync(priceLookupService, (service, eventEntry) -> {
+                    //OK logger.info("PriceLookupPipeline building request");
                     CreateOrderEvent orderCreated = eventEntry.getValue();
                     String orderNumber = orderCreated.getKey();
-                    JSONObject jobj = new JSONObject(orderCreated.getPayload().getValue());
-                    String itemNumber = jobj.getString(CreateOrderEvent.ITEM_NUM);
-                    String locataion = jobj.getString(CreateOrderEvent.LOCATION);
-                    int quantity = jobj.getInt(CreateOrderEvent.QUANTITY);
+                    String itemNumber = orderCreated.getItemNumber();
+                    String location = orderCreated.getLocation();
+                    int quantity = orderCreated.getQuantity();
                     InventoryOuterClass.PriceLookupRequest request = InventoryOuterClass.PriceLookupRequest.newBuilder()
                             .setItemNumber(itemNumber)
                             .build();
-
-                    //System.out.println("** In Order.PriceLookupPipeline, making async grpc service call");
+                    //logger.info("PriceLookupPipeline calling InventoryService::PriceLookup via gRPC");
 
                     return service.call(request)
                             // Stage 2: Create the PriceLookupEvent
                             .thenApply(response -> {
-                                //System.out.println("** Received PriceLookup response, creating event");
+                                //OK logger.info("PriceLookupPipeline received PriceLookup response, creating event");
+                                int priceInCents = response.getPrice();
+                                BigDecimal price = BigDecimal.valueOf(priceInCents).movePointLeft(2);
                                 PriceLookupEvent lookup = new PriceLookupEvent(orderNumber,
-                                        itemNumber, locataion, quantity, response.getPrice());
+                                        itemNumber, location, quantity, price);
                                 return tuple2(eventEntry.getKey(), lookup);
                             });
                 }).setName("Invoke PriceLookup on InventoryService")
 
         // Stage 3: Call HandleEvent (append event, update materialized view, publish event)
                 .mapUsingServiceAsync(eventController, (controller, tuple) -> {
+                    //OK logger.info("PriceLookupPipeline calling handleEvent for PriceLookupEvent");
                     CompletableFuture<CompletionInfo> completion = controller.handleEvent(tuple.f1(), UUID.randomUUID());
+                    //OK logger.info("PriceLookupPipeline final step - future returned for order " + tuple.f1().getOrderNumber());
+                    Metrics.metric("PLP.completions").increment();
                     return completion;
                 }).setName("Invoke EventSourcingController.handleEvent")
 

@@ -1,7 +1,6 @@
 package org.hazelcast.msfdemo.ordersvc.business;
 
 import com.hazelcast.core.HazelcastInstance;
-import com.hazelcast.core.HazelcastJsonValue;
 import com.hazelcast.jet.config.JobConfig;
 import com.hazelcast.jet.datamodel.Tuple2;
 import com.hazelcast.jet.grpc.GrpcService;
@@ -11,11 +10,8 @@ import com.hazelcast.jet.pipeline.ServiceFactories;
 import com.hazelcast.jet.pipeline.ServiceFactory;
 import com.hazelcast.jet.pipeline.Sinks;
 import com.hazelcast.jet.pipeline.Sources;
-import com.hazelcast.org.json.JSONObject;
 import io.grpc.ManagedChannelBuilder;
 import org.hazelcast.eventsourcing.EventSourcingController;
-import org.hazelcast.eventsourcing.pubsub.SubscriptionManager;
-import org.hazelcast.eventsourcing.pubsub.impl.IMapSubMgr;
 import org.hazelcast.eventsourcing.sync.CompletionInfo;
 import org.hazelcast.msfdemo.acctsvc.events.AccountGrpc;
 import org.hazelcast.msfdemo.acctsvc.events.AccountOuterClass;
@@ -24,17 +20,16 @@ import org.hazelcast.msfdemo.ordersvc.domain.Order;
 import org.hazelcast.msfdemo.ordersvc.events.CollectPaymentEvent;
 import org.hazelcast.msfdemo.ordersvc.events.CreditCheckEvent;
 import org.hazelcast.msfdemo.ordersvc.events.OrderEvent;
-import org.hazelcast.msfdemo.ordersvc.events.PriceLookupEvent;
 import org.hazelcast.msfdemo.ordersvc.events.ReserveInventoryEvent;
 import org.hazelcast.msfdemo.ordersvc.service.OrderService;
 
+import java.math.BigDecimal;
 import java.net.URL;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.logging.Logger;
 
-import static com.hazelcast.jet.datamodel.Tuple2.tuple2;
 import static com.hazelcast.jet.grpc.GrpcServices.unaryService;
 
 public class CollectPaymentPipeline implements Runnable {
@@ -100,19 +95,20 @@ public class CollectPaymentPipeline implements Runnable {
                 // Collect payment (AccountService.collectPayment)
                 // Invoke the Account adjust balance service via gRPC
                 .mapUsingServiceAsync(collectPaymentService, (service, entry) -> {
+                    logger.info("CollectPaymentPipeline building request");
                     CreditCheckEvent creditCheckEvent = entry.getValue().f0();
                     // Not sure that we actually need the inventory event - but we should probably ensure that it was successful
                     ReserveInventoryEvent reserveEvent = entry.getValue().f1();
                     String orderNumber = creditCheckEvent.getOrderNumber();
-                    JSONObject jobj = new JSONObject(creditCheckEvent.getPayload().getValue());
-                    String acctNumber = jobj.getString(CreditCheckEvent.ACCT_NUMBER);
-                    int amount = jobj.getInt(CreditCheckEvent.AMT_REQUESTED);
+                    String acctNumber = creditCheckEvent.accountNumber;
+                    BigDecimal amount = creditCheckEvent.amountRequested;
+                    int amountInCents = amount.movePointRight(2).intValue();
                     // TODO: do we reject non-approved requests here or are they filtered
                     //  out before they reach this point?
 
                     AccountOuterClass.AdjustBalanceRequest request = AccountOuterClass.AdjustBalanceRequest.newBuilder()
                             .setAccountNumber(acctNumber)
-                            .setAmount(amount)
+                            .setAmount(amountInCents)
                             .build();
 
                     // Invoke the gRPC service asynchronously
@@ -136,8 +132,21 @@ public class CollectPaymentPipeline implements Runnable {
 
                 // Write event to map where it will trigger subsequent pipeline stage when combined
                 .writeTo(Sinks.map("CollectPaymentEvents",
+// When CompletionInfo has event as a SourcedEvent, use this version
                         completionInfo -> completionInfo.getEvent().getKey(),
                         completionInfo -> completionInfo.getEvent()));
+// When CompletionInfo has event as a GenericRecord, use this version:
+//                        completionInfo -> {
+//                            GenericRecord gr = (GenericRecord) completionInfo.getEvent();
+//                            String key = gr.getString("key");
+//                            return key;
+//                        },
+//                        completionInfo -> {
+//                            GenericRecord gr = (GenericRecord) completionInfo.getEvent();
+//                            logger.info("Sink CollectPaymentEvent " + gr);
+//                            return gr;
+//                        })
+//                );
 
         return p;
     }

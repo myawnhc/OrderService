@@ -10,7 +10,6 @@ import com.hazelcast.jet.pipeline.ServiceFactories;
 import com.hazelcast.jet.pipeline.ServiceFactory;
 import com.hazelcast.jet.pipeline.Sinks;
 import com.hazelcast.jet.pipeline.Sources;
-import com.hazelcast.org.json.JSONObject;
 import io.grpc.ManagedChannelBuilder;
 import org.hazelcast.eventsourcing.EventSourcingController;
 import org.hazelcast.eventsourcing.sync.CompletionInfo;
@@ -95,15 +94,15 @@ public class PullInventoryPipeline implements Runnable {
                 // Pull requested inventory
                 // Invoke the pull service via gRPC
                 .mapUsingServiceAsync(inventoryService, (service, entry) -> {
+                    logger.info("PullInventoryPipeline building request");
                     CreditCheckEvent creditCheckEvent = entry.getValue().f0();
                     ReserveInventoryEvent reserveEvent = entry.getValue().f1();
                     //Order orderDO = reserveEvent.getOrderNumber()
-                    JSONObject jobj = new JSONObject(reserveEvent.getPayload().getValue());
                     String orderNumber = creditCheckEvent.getKey();
-                    String itemNumber = jobj.getString(ReserveInventoryEvent.ITEM_NUMBER);
-                    String location = jobj.getString(ReserveInventoryEvent.LOCATION);
-                    int quantity = jobj.getInt(ReserveInventoryEvent.QUANTITY);
-                    String acctNumber = jobj.getString(ReserveInventoryEvent.ACCT_NUMBER);
+                    String itemNumber = reserveEvent.getItemNumber();
+                    String location = reserveEvent.getLocation();
+                    int quantity = reserveEvent.getQuantity();
+                    String acctNumber = reserveEvent.getAccountNumber();
                     InventoryOuterClass.PullRequest request = InventoryOuterClass.PullRequest.newBuilder()
                             .setItemNumber(itemNumber)
                             .setLocation(location)
@@ -136,8 +135,21 @@ public class PullInventoryPipeline implements Runnable {
 
                 // Write event to map where it will trigger subsequent pipeline stage
                 .writeTo(Sinks.map("PullInventoryEvents",
+// When CompletionInfo has event as a SourcedEvent, use this version
                         completionInfo -> completionInfo.getEvent().getKey(),
                         completionInfo -> completionInfo.getEvent()));
+// When CompletionInfo has event as a GenericRecord, use this version:
+//                        completionInfo -> {
+//                            GenericRecord gr = (GenericRecord) completionInfo.getEvent();
+//                            String key = gr.getString("key");
+//                            return key;
+//                        },
+//                        completionInfo -> {
+//                            GenericRecord gr = (GenericRecord) completionInfo.getEvent();
+//                            logger.info("Sink PullInventoryEvent " + gr);
+//                            return gr;
+//                        })
+//                );
 
         return p;
     }

@@ -17,16 +17,23 @@ hazelcast:
   properties:
     # This is not working but setting via system env variable HZ_USERCODEDEPLOYMENT_ENABLED=true does work ...
     hazelcast.user-code-deployment.enabled: true
-#  serialization:
-#    compact-serialization:
-#      serializers:
-#        - serializer: org.hazelcast.msfdemo.acctsvc.events.AccountCompactionEventSerializer
-#        - serializer: org.hazelcast.msfdemo.acctsvc.events.BalanceChangeEventSerializer
-#        - serializer: org.hazelcast.msfdemo.acctsvc.events.OpenAccountEventSerializer
-#        - serializer: org.hazelcast.eventsourcing.sync.CompletionInfoCompactSerializer
   jet:
     enabled: true
     resource-upload-enabled: true
+#  serialization:
+#    compact-serialization:
+#      classes:
+#        - class: org.hazelcast.msfdemo.ordersvc.domain.Order
+#        - class: org.hazelcast.msfdemo.events.OrderEvent
+#        - class: org.hazelcast.msfdemo.events.CollectPaymentEvent
+#        - class: org.hazelcast.msfdemo.events.CreateOrderEvent
+#        - class: org.hazelcast.msfdemo.events.CreditCheckEvent
+#        - class: org.hazelcast.msfdemo.events.PriceLookupEvent
+#        - class: org.hazelcast.msfdemo.events.PullInventoryEvent
+#        - class: org.hazelcast.msfdemo.events.ReserveInventoryEvent
+#        - class: org.hazelcast.msfdemo.events.ShipOrderEvent
+
+
   map:
     order_PENDING:
       event-journal:

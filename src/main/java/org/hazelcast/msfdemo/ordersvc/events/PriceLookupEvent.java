@@ -16,53 +16,81 @@
 
 package org.hazelcast.msfdemo.ordersvc.events;
 
-import com.hazelcast.core.HazelcastJsonValue;
-import com.hazelcast.org.json.JSONObject;
+import com.hazelcast.nio.serialization.genericrecord.GenericRecord;
+import com.hazelcast.nio.serialization.genericrecord.GenericRecordBuilder;
 import com.hazelcast.sql.SqlRow;
 import org.hazelcast.msfdemo.ordersvc.domain.Order;
-import java.io.Serializable;
+import java.math.BigDecimal;
 
 public class PriceLookupEvent extends OrderEvent {
 
-    public static final String EXTENDED_PRICE = "extendedPrice";
+    public static final String QUAL_EVENT_NAME = "OrderService:PriceLookupEvent";
+    public static final String ORDER_NUMBER = "doKey";
+    public static final String EXTENDED_PRICE = "amount";
     public static final String ITEM_NUMBER = "itemNumber";
     public static final String LOCATION = "location";
     public static final String QUANTITY = "quantity";
 
-    public PriceLookupEvent(String orderNumber, String itemNumber, String location, int quantity, int price) {
+    private final String itemNumber;
+    private final String location;
+    private final int quantity;
+    private final BigDecimal extendedPrice;
+
+    public PriceLookupEvent(String orderNumber, String itemNumber, String location, int quantity, BigDecimal price) {
+        setEventName(QUAL_EVENT_NAME);
         this.key = orderNumber;
-        this.eventClass = PriceLookupEvent.class.getCanonicalName();
-        JSONObject jobj = new JSONObject();
-        jobj.put(ITEM_NUMBER, itemNumber);
-        jobj.put(LOCATION, location);
-        jobj.put(QUANTITY, quantity);
-        jobj.put(EXTENDED_PRICE, price);
-        setPayload(new HazelcastJsonValue(jobj.toString()));
+        this.itemNumber = itemNumber;
+        this.location = location;
+        this.quantity = quantity;
+        this.extendedPrice = price;
+    }
+
+    public PriceLookupEvent(GenericRecord data) {
+        setEventName(QUAL_EVENT_NAME);
+        this.key = data.getString(ORDER_NUMBER);
+        this.itemNumber = data.getString(ITEM_NUMBER);
+        this.location = data.getString(LOCATION);
+        this.quantity = data.getInt32(QUANTITY);
+        this.extendedPrice = data.getDecimal(EXTENDED_PRICE);
     }
 
     public PriceLookupEvent(SqlRow row) {
+        setEventName(QUAL_EVENT_NAME);
         this.key = row.getObject("key");
-        HazelcastJsonValue payload = row.getObject("payload");
-        setPayload(payload);
-        eventClass = PriceLookupEvent.class.getCanonicalName();
-        setTimestamp(row.getObject("timestamp"));
+        this.itemNumber = row.getObject(ITEM_NUMBER);
+        this.location = row.getObject(LOCATION);
+        this.quantity = row.getObject(QUANTITY);
+        this.extendedPrice = row.getObject(EXTENDED_PRICE);
+        Long time = row.getObject(EVENT_TIME);
+        if (time != null)
+            setTimestamp(time);
     }
 
     @Override
     public Order apply(Order order) {
         order.setOrderNumber(getKey());
-        JSONObject jobj = new JSONObject(payload.getValue());
-        order.setItemNumber(jobj.getString(ITEM_NUMBER));
-        order.setLocation(jobj.getString(LOCATION));
-        order.setQuantity(jobj.getInt(QUANTITY));
-        order.setExtendedPrice(jobj.getInt(EXTENDED_PRICE));
+        order.setItemNumber(itemNumber);
+        order.setLocation(location);
+        order.setQuantity(quantity);
+        order.setExtendedPrice(extendedPrice);
         //order.setWaitingOn(EnumSet.of(WaitingOn.CREDIT_CHECK, WaitingOn.RESERVE_INVENTORY));
         return order;
     }
 
     @Override
     public String toString() {
-        JSONObject jobj = new JSONObject(payload.getValue());
-        return "PriceLookupEvent for order " + getKey() + " extended price " + jobj.getInt(EXTENDED_PRICE);
+        return "PriceLookupEvent for order " + getKey() + " extended price " + extendedPrice;
+    }
+
+    public GenericRecord toGenericRecord() {
+        GenericRecord gr = GenericRecordBuilder.compact(getEventName())
+                .setString(EVENT_NAME, QUAL_EVENT_NAME)
+                .setString(ORDER_NUMBER, getOrderNumber())
+                .setString(ITEM_NUMBER, itemNumber)
+                .setString(LOCATION, location)
+                .setInt32(QUANTITY, quantity)
+                .setDecimal(EXTENDED_PRICE, extendedPrice)
+                .build();
+        return gr;
     }
 }

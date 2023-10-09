@@ -1,15 +1,13 @@
 package org.hazelcast.msfdemo.ordersvc.business;
 
 import com.hazelcast.core.HazelcastInstance;
-import com.hazelcast.core.HazelcastJsonValue;
 import com.hazelcast.map.IMap;
-import com.hazelcast.org.json.JSONObject;
 import io.grpc.stub.StreamObserver;
 import org.example.grpc.APIBufferPair;
 import org.example.grpc.Arity;
 import org.hazelcast.eventsourcing.pubsub.Consumer;
 import org.hazelcast.eventsourcing.pubsub.SubscriptionManager;
-import org.hazelcast.eventsourcing.pubsub.impl.ReliableTopicSubMgr;
+import org.hazelcast.eventsourcing.pubsub.impl.IMapSubMgr;
 import org.hazelcast.msfdemo.ordersvc.clients.InventoryServiceClient;
 import org.hazelcast.msfdemo.ordersvc.events.CreateOrderEvent;
 import org.hazelcast.msfdemo.ordersvc.events.OrderEvent;
@@ -48,8 +46,8 @@ public class OrderAPIImpl extends OrderGrpc.OrderImplBase {
         inventoryServiceClient = new InventoryServiceClient();
 
         // Register all the events we're responsible for with the Subscription Manager
-        submgr = new ReliableTopicSubMgr<>();
-        SubscriptionManager.register(hazelcast, CreateOrderEvent.class, submgr);
+        submgr = new IMapSubMgr<>("OrderEvent");
+        SubscriptionManager.register(hazelcast, CreateOrderEvent.QUAL_EVENT_NAME, submgr);
     }
 
     @Override
@@ -71,18 +69,16 @@ public class OrderAPIImpl extends OrderGrpc.OrderImplBase {
         int fromOffset = 0; // Perhaps should add this to the request message?
         Consumer<OrderEvent> consumer = orderCreated -> {
             String orderNumber = orderCreated.getKey();
-            HazelcastJsonValue payload = orderCreated.getPayload();
-            JSONObject jobj = new JSONObject(payload.getValue());
+            CreateOrderEvent createOrderEvent = (CreateOrderEvent) orderCreated;
             OrderCreated eventNotification = OrderCreated.newBuilder()
                     .setOrderNumber(orderNumber)
-                    .setAccountNumber(jobj.getString(CreateOrderEvent.ACCT_NUM))
-                    .setItemNumber(jobj.getString(CreateOrderEvent.ITEM_NUM))
-                    .setLocation(jobj.getString(CreateOrderEvent.LOCATION))
-                    .setQuantity(jobj.getInt(CreateOrderEvent.QUANTITY))
+                    .setAccountNumber(createOrderEvent.getAccountNumber())
+                    .setItemNumber(createOrderEvent.getItemNumber())
+                    .setLocation(createOrderEvent.getLocation())
+                    .setQuantity(createOrderEvent.getQuantity())
                     .build();
             responseObserver.onNext(eventNotification);
         };
         submgr.subscribe(CreateOrderEvent.class.getCanonicalName(), consumer, fromOffset);
-
     }
 }

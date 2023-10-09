@@ -2,11 +2,13 @@ package org.hazelcast.msfdemo.ordersvc.business;
 
 import com.hazelcast.core.HazelcastInstance;
 import com.hazelcast.jet.config.JobConfig;
+import com.hazelcast.jet.core.metrics.Metrics;
 import com.hazelcast.jet.grpc.GrpcService;
 import com.hazelcast.jet.pipeline.Pipeline;
 import com.hazelcast.jet.pipeline.ServiceFactories;
 import com.hazelcast.jet.pipeline.ServiceFactory;
 import com.hazelcast.jet.pipeline.Sinks;
+import com.hazelcast.nio.serialization.genericrecord.GenericRecord;
 import io.grpc.ManagedChannelBuilder;
 import org.hazelcast.eventsourcing.EventSourcingController;
 import org.hazelcast.eventsourcing.pubsub.SubscriptionManager;
@@ -75,8 +77,8 @@ public class ReserveInventoryPipeline implements Runnable {
     private static Pipeline createPipeline() {
         Pipeline p = Pipeline.create();
 
-        SubscriptionManager<CreditCheckEvent> eventSource = new IMapSubMgr<>("OrderEvent");
-        SubscriptionManager.register(service.getHazelcastInstance(), CreditCheckEvent.class,
+        SubscriptionManager<PriceLookupEvent> eventSource = new IMapSubMgr<>("OrderEvent");
+        SubscriptionManager.register(service.getHazelcastInstance(), PriceLookupEvent.QUAL_EVENT_NAME,
                 eventSource);
 
         ServiceFactory<?, ? extends GrpcService<InventoryOuterClass.ReserveRequest, InventoryOuterClass.ReserveResponse>>
@@ -93,34 +95,41 @@ public class ReserveInventoryPipeline implements Runnable {
                 );
 
         // Read events from MapJournal
-        p.readFrom(eventSource.getStreamSource("CreditCheckEvent"))
+        p.readFrom(eventSource.getStreamSource(PriceLookupEvent.QUAL_EVENT_NAME))
                 .withoutTimestamps()
-                .setName("Read CreditCheckEvents from Map Journal")
+                .setName("Read PriceLookupEvents from Map Journal")
 
                 // item here is Map.Entry<PartitionedSequenceKey,CreditCheckEvent>
                 // CreditCheckEvent doesn't contain item number or location, so must enrich stream
                 .mapUsingIMap(service.getOrderView(),
                         /* keyFn */ entry -> entry.getValue().getKey(),
-                        /* mapFn */ (entry, order) -> tuple2(entry.getValue(), order))
-                .setName("Enrich CreditCheckEvent with Order materialized view")
+                        /* mapFn */ (entry, orderGR) -> {
+                            //Order order = new Order(orderGR);
+                            //OK logger.info("ReserveInventoryPipeline builds " + order + " from " + orderGR);
+                            return tuple2(entry.getValue(), new Order(orderGR));
+                        })
+                 .setName("Enrich CreditCheckEvent with Order materialized view")
 
                 // Reserve requested inventory
                 // Invoke the reserve service via gRPC
-                .mapUsingServiceAsync(inventoryService, (service, tuple2) -> {
-                    CreditCheckEvent creditCheckEvent = tuple2.f0();
+                .mapUsingServiceAsync(inventoryService, (invsvc, tuple2) -> {
+                    //OK logger.info("ReserveInventoryPipeline building request");
+                    PriceLookupEvent priceLookupEvent = tuple2.f0();
                     Order orderDO = tuple2.f1();
-                    String orderNumber = creditCheckEvent.getKey();
+                    String orderNumber = priceLookupEvent.getKey();
                     InventoryOuterClass.ReserveRequest request = InventoryOuterClass.ReserveRequest.newBuilder()
                             .setItemNumber(orderDO.getItemNumber())
                             .setLocation(orderDO.getLocation())
                             .setQuantity(orderDO.getQuantity())
                             // could optionally set duration of hold but hold expiration is not implemented
                             .build();
+                    logger.info("ReserveInventoryPipeline calling ReserveInventory remote service");
 
                     // Invoke the gRPC service asynchronously
-                    return service.call(request)
-                            // Create the CreditCheckEvent.
+                    return invsvc.call(request)
+                            // Create the ReserviceInventoryEvent once we have gRPC response
                             .thenApply(response -> {
+                                logger.info("Received response from InventoryService::ReserveInventory");
                                 boolean success = response.getSuccess();
                                 ReserveInventoryEvent reserve = new ReserveInventoryEvent(orderNumber,
                                         orderDO.getAcctNumber(),
@@ -130,22 +139,30 @@ public class ReserveInventoryPipeline implements Runnable {
                                 if (!success) {
                                     String failureReason = response.getReason();
                                     reserve.setFailureReason(failureReason);
+                                    logger.warning("   ReserveInventory denied " + failureReason);
                                 }
+                                //Metrics.metric("RIP.serviceCallCompleted").increment();
                                 return reserve;
                             });
                 }).setName("Invoke ReserveInventory on InventoryService")
 
                 // Call HandleEvent (append event, update materialized view, publish event)
-                .mapUsingServiceAsync(eventController, (controller, creditCheckEvent) -> {
-                    CompletableFuture<CompletionInfo> completion = controller.handleEvent(creditCheckEvent, UUID.randomUUID());
+                .mapUsingServiceAsync(eventController, (controller, reserveInventoryEvent) -> {
+                    CompletableFuture<CompletionInfo> completion = controller.handleEvent(reserveInventoryEvent, UUID.randomUUID());
+                    logger.info("ReserveInventoryPipeline received Future from ESController.handleEvent");
+                    Metrics.metric("RIP.handleEventCalled").increment();
                     return completion;
                 }).setName("Invoke EventSourcingController.handleEvent")
 
                 // Write event to map where it will trigger subsequent pipeline stage when combined
                 .writeTo(Sinks.map("ReserveInventoryEvents",
                         completionInfo -> completionInfo.getEvent().getKey(),
-                        completionInfo -> completionInfo.getEvent()));
-
+                        //completionInfo -> completionInfo.getEvent()));
+                        completionInfo -> {
+                            logger.info("RIP.handleEvent finished, writing to ReserveInventoryEvents");
+                            Metrics.metric("RIP.completions").increment();
+                            return completionInfo.getEvent();
+                        }));
         return p;
     }
 }

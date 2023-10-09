@@ -16,49 +16,73 @@
 
 package org.hazelcast.msfdemo.ordersvc.events;
 
-import com.hazelcast.core.HazelcastJsonValue;
-import com.hazelcast.org.json.JSONObject;
+import com.hazelcast.nio.serialization.genericrecord.GenericRecord;
+import com.hazelcast.nio.serialization.genericrecord.GenericRecordBuilder;
 import com.hazelcast.sql.SqlRow;
 import org.hazelcast.msfdemo.ordersvc.domain.Order;
 
 public class PullInventoryEvent extends OrderEvent {
 
+    public static final String QUAL_EVENT_NAME = "OrderService:PullInventoryEvent";
+    public static final String ORDER_NUMBER = "doKey";
     public static final String ACCT_NUMBER = "accountNumber";
     public static final String ITEM_NUMBER = "itemNumber";
     public static final String QUANTITY = "quantity";
     public static final String LOCATION = "location";
-    public static final String FAILURE_REASON = "failureReason";
+    public static final String FAILURE_REASON = "description";
+
+    private String accountNumber;
+    private String itemNumber;
+    private String location;
+    private int quantity;
+    private String failureReason;
 
     public PullInventoryEvent(String orderNumber, String acctNumber, String itemNumber, String location, int quantity) {
+        setEventName(QUAL_EVENT_NAME);
         this.key = orderNumber;
-        this.eventClass = PullInventoryEvent.class.getCanonicalName();
-        JSONObject jobj = new JSONObject();
-        jobj.put(ACCT_NUMBER, acctNumber);
-        jobj.put(ITEM_NUMBER, itemNumber);
-        jobj.put(LOCATION, location);
-        jobj.put(QUANTITY, quantity);
-        setPayload(new HazelcastJsonValue(jobj.toString()));
+        this.accountNumber = acctNumber;
+        this.itemNumber = itemNumber;
+        this.location = location;
+        this.quantity = quantity;
+    }
+
+    public PullInventoryEvent(GenericRecord data) {
+        setEventName(QUAL_EVENT_NAME);
+        this.key = data.getString(ORDER_NUMBER);
+        this.accountNumber = data.getString(ACCT_NUMBER);
+        this.itemNumber = data.getString(ITEM_NUMBER);
+        this.location = data.getString(LOCATION);
+        this.quantity = data.getInt32(QUANTITY);
+        this.failureReason = data.getString(FAILURE_REASON);
     }
 
     public void setFailureReason(String reason) {
-        JSONObject jobj = new JSONObject(payload.getValue());
-        jobj.put(FAILURE_REASON, reason);
-        payload = new HazelcastJsonValue(jobj.toString());
+        this.failureReason = reason;
     }
 
     public PullInventoryEvent(SqlRow row) {
+        setEventName(QUAL_EVENT_NAME);
         this.key = row.getObject("key");
-        HazelcastJsonValue payload = row.getObject("payload");
-        setPayload(payload);
-        eventClass = PullInventoryEvent.class.getCanonicalName();
-        setTimestamp(row.getObject("timestamp"));
+        this.accountNumber = row.getObject(ACCT_NUMBER);
+        this.itemNumber = row.getObject(ITEM_NUMBER);
+        this.location = row.getObject(LOCATION);
+        this.quantity = row.getObject(QUANTITY);
+        this.failureReason = row.getObject(FAILURE_REASON);
+        Long time = row.getObject(EVENT_TIME);
+        if (time != null)
+            setTimestamp(time);
     }
+
+    public String getAccountNumber() { return accountNumber; }
+    public String getItemNumber() { return itemNumber; }
+    public String getLocation() { return location; }
+    public int getQuantity() { return quantity; }
 
     public Order apply(Order order) {
         // May in some future implementation alter quantity, for partial ship,
         // but we're not doing that currently.
-        JSONObject jobj = new JSONObject(payload.getValue());
-        order.setQuantity(jobj.getInt(QUANTITY));
+        order.setQuantity(quantity);
+
 
 //        EnumSet<WaitingOn> waits = order.getWaitingOn();
 //        waits.remove(WaitingOn.RESERVE_INVENTORY);
@@ -72,8 +96,21 @@ public class PullInventoryEvent extends OrderEvent {
 
     @Override
     public String toString() {
-        JSONObject jobj = new JSONObject(payload.getValue());
-        return "PullInventoryEvent I:" + jobj.getString(ITEM_NUMBER) + " Q:" + jobj.getInt(QUANTITY);
+        return "PullInventoryEvent I:" + itemNumber + " Q:" + quantity;
+    }
+
+    @Override
+    public GenericRecord toGenericRecord() {
+        GenericRecord gr = GenericRecordBuilder.compact(getEventName())
+                .setString(EVENT_NAME, QUAL_EVENT_NAME)
+                .setString(ORDER_NUMBER, getOrderNumber())
+                .setString(ACCT_NUMBER, accountNumber)
+                .setString(ITEM_NUMBER, itemNumber)
+                .setString(LOCATION, location)
+                .setInt32(QUANTITY, quantity)
+                .setString(FAILURE_REASON, failureReason)
+                .build();
+        return gr;
     }
 }
 

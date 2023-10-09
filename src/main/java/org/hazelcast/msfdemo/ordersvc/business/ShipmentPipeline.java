@@ -3,26 +3,18 @@ package org.hazelcast.msfdemo.ordersvc.business;
 import com.hazelcast.core.HazelcastInstance;
 import com.hazelcast.jet.config.JobConfig;
 import com.hazelcast.jet.datamodel.Tuple2;
-import com.hazelcast.jet.grpc.GrpcService;
 import com.hazelcast.jet.pipeline.JournalInitialPosition;
 import com.hazelcast.jet.pipeline.Pipeline;
 import com.hazelcast.jet.pipeline.ServiceFactories;
 import com.hazelcast.jet.pipeline.ServiceFactory;
 import com.hazelcast.jet.pipeline.Sinks;
 import com.hazelcast.jet.pipeline.Sources;
-import com.hazelcast.org.json.JSONObject;
-import io.grpc.ManagedChannelBuilder;
 import org.hazelcast.eventsourcing.EventSourcingController;
 import org.hazelcast.eventsourcing.sync.CompletionInfo;
-import org.hazelcast.msfdemo.acctsvc.events.AccountGrpc;
-import org.hazelcast.msfdemo.acctsvc.events.AccountOuterClass;
-import org.hazelcast.msfdemo.ordersvc.configuration.ServiceConfig;
 import org.hazelcast.msfdemo.ordersvc.domain.Order;
 import org.hazelcast.msfdemo.ordersvc.events.CollectPaymentEvent;
-import org.hazelcast.msfdemo.ordersvc.events.CreditCheckEvent;
 import org.hazelcast.msfdemo.ordersvc.events.OrderEvent;
 import org.hazelcast.msfdemo.ordersvc.events.PullInventoryEvent;
-import org.hazelcast.msfdemo.ordersvc.events.ReserveInventoryEvent;
 import org.hazelcast.msfdemo.ordersvc.events.ShipOrderEvent;
 import org.hazelcast.msfdemo.ordersvc.service.OrderService;
 
@@ -87,13 +79,12 @@ public class ShipmentPipeline implements Runnable {
                     CollectPaymentEvent collectPaymentEvent = entry.getValue().f0();
                     PullInventoryEvent pullInventoryEvent = entry.getValue().f1();
                     String orderNumber = pullInventoryEvent.getOrderNumber();
-                    JSONObject jobj = new JSONObject(pullInventoryEvent.getPayload().getValue());
-                    String itemNumber = jobj.getString(PullInventoryEvent.ITEM_NUMBER);
-                    String location = jobj.getString(PullInventoryEvent.LOCATION);
-                    int quantity = jobj.getInt(PullInventoryEvent.QUANTITY);
+                    String itemNumber = pullInventoryEvent.getItemNumber();
+                    String location = pullInventoryEvent.getLocation();
+                    int quantity = pullInventoryEvent.getQuantity();
                     ShipOrderEvent shipment = new ShipOrderEvent(orderNumber, itemNumber, location, quantity);
                     return shipment;
-                })
+                }).setName("Create ShipOrderEvent from input events")
 
                 // Call HandleEvent (append event, update materialized view, publish event)
                 .mapUsingServiceAsync(eventController, (controller, shipmentEvent) -> {

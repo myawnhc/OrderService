@@ -16,39 +16,54 @@
 
 package org.hazelcast.msfdemo.ordersvc.events;
 
-import com.hazelcast.core.HazelcastJsonValue;
-import com.hazelcast.org.json.JSONObject;
+import com.hazelcast.nio.serialization.genericrecord.GenericRecord;
+import com.hazelcast.nio.serialization.genericrecord.GenericRecordBuilder;
 import com.hazelcast.sql.SqlRow;
 import org.hazelcast.msfdemo.ordersvc.domain.Order;
 import java.io.Serializable;
+import java.math.BigDecimal;
 import java.util.function.UnaryOperator;
 
 import static org.hazelcast.msfdemo.ordersvc.events.OrderOuterClass.CreditChecked;
 
 public class CreditCheckEvent extends OrderEvent implements Serializable, UnaryOperator<Order> {
 
-    public static final String ACCT_NUMBER = "acccountNumber";
-    public static final String AMT_REQUESTED = "amountRequested";
+    public static final String QUAL_EVENT_NAME = "OrderService:CreditCheckEvent";
+    public static final String ORDER_NUMBER = "doKey";
+    public static final String ACCT_NUMBER = "accountNumber";
+    public static final String AMT_REQUESTED = "amount";
     public static final String APPROVED = "approved";
 
+    public String accountNumber;
+    public BigDecimal amountRequested;
+    public boolean approved;
 
     public CreditCheckEvent(String orderNumber, String acctNumber,
-                            int amountRequested, boolean approved) {
+                            BigDecimal amountRequested, boolean approved) {
+        setEventName(QUAL_EVENT_NAME);
         this.key = orderNumber;
-        this.eventClass = CreditCheckEvent.class.getCanonicalName();
-        JSONObject jobj = new JSONObject();
-        jobj.put(ACCT_NUMBER, acctNumber);
-        jobj.put(AMT_REQUESTED, amountRequested);
-        jobj.put(APPROVED, approved);
-        setPayload(new HazelcastJsonValue(jobj.toString()));
+        this.accountNumber = acctNumber;
+        this.amountRequested = amountRequested;
+        this.approved = approved;
+    }
+
+    public CreditCheckEvent(GenericRecord data) {
+        setEventName(QUAL_EVENT_NAME);
+        this.key = data.getString(ORDER_NUMBER);
+        this.accountNumber = data.getString(ACCT_NUMBER);
+        this.amountRequested = data.getDecimal(AMT_REQUESTED);
+        this.approved = data.getBoolean(APPROVED);
     }
 
     public CreditCheckEvent(SqlRow row) {
+        setEventName(QUAL_EVENT_NAME);
         this.key = row.getObject("key");
-        HazelcastJsonValue payload = row.getObject("payload");
-        setPayload(payload);
-        eventClass = CreditCheckEvent.class.getCanonicalName();
-        setTimestamp(row.getObject("timestamp"));
+        this.accountNumber = row.getObject(ACCT_NUMBER);
+        this.amountRequested = row.getObject(AMT_REQUESTED);
+        this.approved = row.getObject(APPROVED);
+        Long time = row.getObject(EVENT_TIME);
+        if (time != null)
+            setTimestamp(time);
     }
 
     @Override
@@ -62,5 +77,17 @@ public class CreditCheckEvent extends OrderEvent implements Serializable, UnaryO
 //        return order;
         //System.out.println("*** CreditCheckEvent.apply is a nop - this may be OK ***");
         return order;
+    }
+
+    @Override
+    public GenericRecord toGenericRecord() {
+        GenericRecord gr = GenericRecordBuilder.compact(getEventName())
+                .setString(EVENT_NAME, QUAL_EVENT_NAME)
+                .setString(ORDER_NUMBER, getOrderNumber())
+                .setString(ACCT_NUMBER, accountNumber)
+                .setDecimal(AMT_REQUESTED, amountRequested)
+                .setBoolean(APPROVED, approved)
+                .build();
+        return gr;
     }
 }

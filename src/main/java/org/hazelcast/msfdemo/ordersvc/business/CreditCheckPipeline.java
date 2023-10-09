@@ -2,15 +2,12 @@ package org.hazelcast.msfdemo.ordersvc.business;
 
 import com.hazelcast.core.HazelcastInstance;
 import com.hazelcast.jet.config.JobConfig;
-import com.hazelcast.jet.datamodel.Tuple2;
 import com.hazelcast.jet.grpc.GrpcService;
 import com.hazelcast.jet.pipeline.Pipeline;
 import com.hazelcast.jet.pipeline.ServiceFactories;
 import com.hazelcast.jet.pipeline.ServiceFactory;
 import com.hazelcast.jet.pipeline.Sinks;
-import com.hazelcast.jet.pipeline.StreamStage;
-import com.hazelcast.map.IMap;
-import com.hazelcast.org.json.JSONObject;
+import com.hazelcast.nio.serialization.genericrecord.GenericRecord;
 import io.grpc.ManagedChannelBuilder;
 import org.hazelcast.eventsourcing.EventSourcingController;
 import org.hazelcast.eventsourcing.pubsub.SubscriptionManager;
@@ -18,21 +15,16 @@ import org.hazelcast.eventsourcing.pubsub.impl.IMapSubMgr;
 import org.hazelcast.eventsourcing.sync.CompletionInfo;
 import org.hazelcast.msfdemo.acctsvc.events.AccountGrpc;
 import org.hazelcast.msfdemo.acctsvc.events.AccountOuterClass;
-import org.hazelcast.msfdemo.invsvc.events.InventoryGrpc;
-import org.hazelcast.msfdemo.invsvc.events.InventoryOuterClass;
 import org.hazelcast.msfdemo.ordersvc.configuration.ServiceConfig;
 import org.hazelcast.msfdemo.ordersvc.domain.Order;
-import org.hazelcast.msfdemo.ordersvc.events.CreateOrderEvent;
 import org.hazelcast.msfdemo.ordersvc.events.CreditCheckEvent;
 import org.hazelcast.msfdemo.ordersvc.events.OrderEvent;
-import org.hazelcast.msfdemo.ordersvc.events.OrderOuterClass;
 import org.hazelcast.msfdemo.ordersvc.events.PriceLookupEvent;
 import org.hazelcast.msfdemo.ordersvc.service.OrderService;
 
+import java.math.BigDecimal;
 import java.net.URL;
-import java.util.AbstractMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.logging.Logger;
@@ -83,7 +75,7 @@ public class CreditCheckPipeline implements Runnable {
         Pipeline p = Pipeline.create();
 
         SubscriptionManager<PriceLookupEvent> eventSource = new IMapSubMgr<>("OrderEvent");
-        SubscriptionManager.register(service.getHazelcastInstance(), PriceLookupEvent.class,
+        SubscriptionManager.register(service.getHazelcastInstance(), PriceLookupEvent.QUAL_EVENT_NAME,
                 eventSource);
 
         ServiceFactory<?, ? extends GrpcService<AccountOuterClass.CheckBalanceRequest, AccountOuterClass.CheckBalanceResponse>>
@@ -100,14 +92,24 @@ public class CreditCheckPipeline implements Runnable {
                 );
 
         // Read events from MapJournal
-        p.readFrom(eventSource.getStreamSource("PriceLookupEvent"))
+        p.readFrom(eventSource.getStreamSource(PriceLookupEvent.QUAL_EVENT_NAME))
                 .withoutTimestamps()
                 .setName("Read PriceLookupEvents from Map Journal")
 
                 // OrderPriced event doesn't contain account number, so must enrich stream
                 .mapUsingIMap(service.getOrderView(),
-                        /* keyFn */ entry -> entry.getValue().getKey(),
-                        /* mapFn */ (entry, order) -> tuple2(entry.getValue(), order))
+//                        /* keyFn */ entry -> entry.getValue().getKey(),
+//                        /* mapFn */ (entry, orderGR) -> tuple2(entry.getValue(), new Order(orderGR)))
+                        /* keyFn */ entry -> {
+                            String key = entry.getValue().getKey();
+                            //logger.info("CreditCheckPipeline looking up Order for key " + key);
+                            return key;
+                        },
+                        /* mapFn */ (entry, orderGR) -> {
+                            Order order = new Order(orderGR);
+                            //logger.info("CreditCheckPipeline enriching PriceLookupEvent using " + order);
+                            return tuple2(entry.getValue(), order);
+                        })
                 .setName("Enrich PriceLookupEvent with Order materialized view")
 
                 // Check customer's credit balance (AccountService.checkBalance)
@@ -119,14 +121,16 @@ public class CreditCheckPipeline implements Runnable {
                     AccountOuterClass.CheckBalanceRequest request = AccountOuterClass.CheckBalanceRequest.newBuilder()
                             .setAccountNumber(orderDO.getAcctNumber())
                             .build();
+                    //logger.info("CreditCheckPipeline invoking remote call on AccountService");
 
                     // Invoke the gRPC service asynchronously
                     return service.call(request)
                             // Create the CreditCheckEvent.
                             .thenApply(response -> {
                                 int creditAllowed = response.getBalance();
-                                int amountRequested = orderDO.getExtendedPrice() * orderDO.getQuantity();
-                                boolean approved = creditAllowed >= amountRequested;
+                                BigDecimal amountRequested = orderDO.getExtendedPrice()
+                                        .multiply(BigDecimal.valueOf(orderDO.getQuantity()));
+                                boolean approved = creditAllowed >= amountRequested.intValue(); // ignores cents
                                 CreditCheckEvent creditCheck = new CreditCheckEvent(orderNumber,
                                         orderDO.getAcctNumber(),
                                         amountRequested,
@@ -138,15 +142,32 @@ public class CreditCheckPipeline implements Runnable {
 
                 // Call HandleEvent (append event, update materialized view, publish event)
                 .mapUsingServiceAsync(eventController, (controller, creditCheckEvent) -> {
+                    //logger.info("CreditCheckPipeline invoking handleEvent on EventSourcingController");
                     CompletableFuture<CompletionInfo> completion = controller.handleEvent(creditCheckEvent, UUID.randomUUID());
                     return completion;
                 }).setName("Invoke EventSourcingController.handleEvent")
 
                 // Write event to map where it will trigger subsequent pipeline stage when combined
                 .writeTo(Sinks.map("CreditCheckEvents",
+// When CompletionInfo has event as a SourcedEvent, use this version
                         completionInfo -> completionInfo.getEvent().getKey(),
-                        completionInfo -> completionInfo.getEvent()));
-
+                        completionInfo -> {
+                            logger.info("CreditCheckPipeline, handleEvent complete, writing event to CreditCheckEvents");
+                            return completionInfo.getEvent();
+                        }));
+// When CompletionInfo has event as a GenericRecord, use this version:
+//                        completionInfo -> {
+//                            logger.info("in sink of CreditCheckPipeline with cinfo " + completionInfo);
+//                            GenericRecord gr = (GenericRecord) completionInfo.getEvent();
+//                            String key = gr.getString("key");
+//                            return key;
+//                        },
+//                        completionInfo -> {
+//                            GenericRecord gr = (GenericRecord) completionInfo.getEvent();
+//                            logger.info("CreditCheckPipeline sinking into CreditCheckEvent " + gr);
+//                            return gr;
+//                        })
+//                );
         return p;
     }
 }

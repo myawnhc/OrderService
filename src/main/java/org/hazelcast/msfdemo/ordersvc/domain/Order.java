@@ -15,19 +15,44 @@
  */
 package org.hazelcast.msfdemo.ordersvc.domain;
 
+import com.hazelcast.nio.serialization.genericrecord.GenericRecord;
+import com.hazelcast.nio.serialization.genericrecord.GenericRecordBuilder;
 import org.hazelcast.eventsourcing.event.DomainObject;
 
+import java.math.BigDecimal;
+
 public class Order implements DomainObject<String> {
+
+    public static final String QUAL_DO_NAME = "OrderService:Order";
+
+    public static final String ORDER_NUMBER = "key";
+    public static final String ACCOUNT_NUMBER = "acctNumber";
+    public static final String ITEM_NUMBER = "itemNumber";
+    public static final String LOCATION = "location";
+    public static final String EXTENDED_PRICE = "price";
+    public static final String QUANTITY = "quantity";
 
     private String orderNumber;
     private String acctNumber;
     private String itemNumber;
     private String location;
-    private int extendedPrice; // TODO: Make BigDecimal
+    private BigDecimal extendedPrice;
     private int quantity;
     //private EnumSet<WaitingOn> waitingOn;
 
     public Order() {}
+
+    public Order(GenericRecord fromGR) {
+        this.orderNumber = fromGR.getString(ORDER_NUMBER);
+        this.itemNumber = fromGR.getString(ITEM_NUMBER);
+        this.acctNumber = fromGR.getString(ACCOUNT_NUMBER);
+        this.location = fromGR.getString(LOCATION);
+        this.extendedPrice = fromGR.getDecimal(EXTENDED_PRICE);
+        this.quantity = fromGR.getInt32(QUANTITY);
+        if (this.itemNumber == null) {
+            System.out.println("Null itemNumber");
+        }
+    }
 
     public String getKey() { return orderNumber; }
 
@@ -47,8 +72,8 @@ public class Order implements DomainObject<String> {
     public void setQuantity(int quantity) { this.quantity = quantity; }
     public int getQuantity() { return quantity; }
 
-    public void setExtendedPrice(int price) { this.extendedPrice = price; }
-    public int getExtendedPrice() { return extendedPrice; }
+    public void setExtendedPrice(BigDecimal price) { this.extendedPrice = price; }
+    public BigDecimal getExtendedPrice() { return extendedPrice; }
 
 //    public EnumSet<WaitingOn> getWaitingOn() {
 //        return waitingOn;
@@ -60,5 +85,17 @@ public class Order implements DomainObject<String> {
     @Override
     public String toString() {
         return "Order " + orderNumber + " I:" + itemNumber + " L:" + location + " A:" + acctNumber + " Q:" + quantity;
+    }
+
+    public GenericRecord toGenericRecord() {
+        GenericRecord gr = GenericRecordBuilder.compact(QUAL_DO_NAME)
+                .setString(ORDER_NUMBER, orderNumber)
+                .setString(ACCOUNT_NUMBER, acctNumber)
+                .setString(ITEM_NUMBER, itemNumber)
+                .setString(LOCATION, location)
+                .setDecimal(EXTENDED_PRICE, extendedPrice)
+                .setInt32(QUANTITY, quantity)
+                .build();
+        return gr;
     }
 }

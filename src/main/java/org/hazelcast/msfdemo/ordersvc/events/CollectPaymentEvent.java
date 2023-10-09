@@ -16,8 +16,8 @@
 
 package org.hazelcast.msfdemo.ordersvc.events;
 
-import com.hazelcast.core.HazelcastJsonValue;
-import com.hazelcast.org.json.JSONObject;
+import com.hazelcast.nio.serialization.genericrecord.GenericRecord;
+import com.hazelcast.nio.serialization.genericrecord.GenericRecordBuilder;
 import com.hazelcast.sql.SqlRow;
 import org.hazelcast.msfdemo.ordersvc.domain.Order;
 
@@ -25,26 +25,36 @@ import java.math.BigDecimal;
 
 public class CollectPaymentEvent extends OrderEvent {
 
+    public static final String QUAL_EVENT_NAME = "OrderService:CollectPaymentEvent";
     public static final String ACCOUNT_NUMBER = "accountNumber";
-    public static final String AMOUNT_CHARGED = "amountCharged";
-    public static final String ORDER_NUMBER = "orderNumber";
+    public static final String AMOUNT_CHARGED = "amount";
+    public static final String ORDER_NUMBER = "doKey";
 
-    public CollectPaymentEvent(String orderNumber, String accountNumber, int amountCharged) {
+    private String accountNumber;
+    private BigDecimal amountCharged;
+
+    public CollectPaymentEvent(String orderNumber, String accountNumber, BigDecimal amountCharged) {
+        setEventName(QUAL_EVENT_NAME);
         this.key = orderNumber;
-        this.eventClass = CollectPaymentEvent.class.getCanonicalName();
-        JSONObject jobj = new JSONObject();
-        jobj.put(ORDER_NUMBER, orderNumber);
-        jobj.put(ACCOUNT_NUMBER, accountNumber);
-        jobj.put(AMOUNT_CHARGED, amountCharged);
-        setPayload(new HazelcastJsonValue(jobj.toString()));
+        this.accountNumber = accountNumber;
+        this.amountCharged = amountCharged;
+    }
+
+    public CollectPaymentEvent(GenericRecord data) {
+        setEventName(QUAL_EVENT_NAME);
+        this.key = data.getString(ORDER_NUMBER);
+        this.accountNumber = data.getString(ACCOUNT_NUMBER);
+        this.amountCharged = data.getDecimal(AMOUNT_CHARGED);
     }
 
     public CollectPaymentEvent(SqlRow row) {
-        this.key = row.getObject("key");
-        HazelcastJsonValue payload = row.getObject("payload");
-        setPayload(payload);
-        eventClass = CollectPaymentEvent.class.getCanonicalName();
-        setTimestamp(row.getObject("timestamp"));
+        setEventName(QUAL_EVENT_NAME);
+        this.key = row.getObject(ORDER_NUMBER);
+        this.accountNumber = row.getObject(ACCOUNT_NUMBER);
+        this.amountCharged = row.getObject(AMOUNT_CHARGED);
+        Long time = row.getObject(EVENT_TIME);
+        if (time != null)
+            setTimestamp(time);
     }
 
     @Override
@@ -55,7 +65,17 @@ public class CollectPaymentEvent extends OrderEvent {
 
     @Override
     public String toString() {
-        JSONObject jobj = new JSONObject(payload.getValue());
-        return "CollectPaymentEvent for order " + getKey() + " amount charged " + jobj.getInt(AMOUNT_CHARGED);
+        return "CollectPaymentEvent for order " + getKey() + " amount charged " + amountCharged;
+    }
+
+    @Override
+    public GenericRecord toGenericRecord() {
+        GenericRecord gr = GenericRecordBuilder.compact(getEventName())
+                .setString(EVENT_NAME, QUAL_EVENT_NAME)
+                .setString(ORDER_NUMBER, key)
+                .setString(ACCOUNT_NUMBER, accountNumber)
+                .setDecimal(AMOUNT_CHARGED, amountCharged)
+                .build();
+        return gr;
     }
 }

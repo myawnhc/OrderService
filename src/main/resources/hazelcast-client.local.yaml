@@ -4,8 +4,3 @@ hazelcast-client:
     network:
       cluster-members:
       - localhost:5711
-#    properties:
-#      hazelcast.config.schema.validation.enabled: false
-#    serialization:
-#      compact-serialization:
-#        enabled: true
